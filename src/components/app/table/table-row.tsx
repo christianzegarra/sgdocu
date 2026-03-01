@@ -129,7 +129,24 @@ function ProTableRowInner<T extends object>({
           }
           rowSelection?.onRowClick?.(rk, row.original);
         }}
-        onDoubleClick={() => rowSelection?.onRowDoubleClick?.(rk, row.original)}
+        onDoubleClick={(e: React.MouseEvent) => {
+          try {
+            e.stopPropagation();
+            const sRk = String(rk);
+            if (rowSelection?.type === "single") {
+              if (!selectedSet.has(sRk)) updateSelection([rk], [row.original]);
+            } else if (rowSelection?.type === "multiple") {
+              const newKeys = new Set(selectedSet);
+              newKeys.add(sRk);
+              const finalKeys = Array.from(newKeys);
+              const finalRows = dataSource.filter((r) => newKeys.has(String(getRK(r))));
+              updateSelection(finalKeys as any, finalRows);
+            }
+          } catch {
+            // noop
+          }
+          rowSelection?.onRowDoubleClick?.(rk, row.original);
+        }}
         onContextMenu={(e) => handleCtx(e, rk, row.original)}
         draggable={draggable?.enable && (dragGripKey === row.id || draggedIndex === vRow.index)}
         onDragStart={(e) => {
