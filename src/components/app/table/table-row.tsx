@@ -1,4 +1,4 @@
-import { useState, type RefObject, memo } from "react";
+import { useState, type RefObject, memo, useRef, useEffect } from "react";
 import type * as React from "react";
 import { flexRender, type Row } from "@tanstack/react-table";
 import { type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
@@ -43,6 +43,7 @@ export interface ProTableRowProps<T extends object> {
   containerWidth: number;
   isExpanded: boolean;
   precededByGroup?: boolean;
+  mapVirtualIndexToOriginal?: (i: number) => T | undefined;
 }
 
 function ProTableRowInner<T extends object>({
@@ -81,9 +82,15 @@ function ProTableRowInner<T extends object>({
   rowVirtualizer,
   isExpanded,
   precededByGroup = false,
+  mapVirtualIndexToOriginal,
 }: ProTableRowProps<T>) {
   const [isHovered, setIsHovered] = useState(false);
   void scrollRef;
+  const selectedSetRef = useRef(selectedSet);
+
+  useEffect(() => {
+    selectedSetRef.current = selectedSet;
+  }, [selectedSet]);
 
   return (
     <div
@@ -119,12 +126,14 @@ function ProTableRowInner<T extends object>({
               if (selectedSet.has(sRk)) updateSelection([], []);
               else updateSelection([rk], [row.original]);
             } else if (rowSelection?.type === "multiple") {
-              const newKeys = new Set(selectedSet);
+              const newKeys = new Set(selectedSetRef.current);
               if (newKeys.has(sRk)) newKeys.delete(sRk);
               else newKeys.add(sRk);
               const finalKeys = Array.from(newKeys);
-              const finalRows = dataSource.filter((r) => newKeys.has(String(getRK(r))));
-              updateSelection(finalKeys as any, finalRows);
+              // Crear un Map para búsqueda eficiente de filas por key
+              const rowMap = new Map(dataSource.map((r) => [String(getRK(r)), r]));
+              const finalRows = finalKeys.map((k) => rowMap.get(String(k))).filter((r): r is T => r !== undefined);
+              updateSelection(finalKeys, finalRows);
             }
           }
           rowSelection?.onRowClick?.(rk, row.original);
@@ -136,11 +145,13 @@ function ProTableRowInner<T extends object>({
             if (rowSelection?.type === "single") {
               if (!selectedSet.has(sRk)) updateSelection([rk], [row.original]);
             } else if (rowSelection?.type === "multiple") {
-              const newKeys = new Set(selectedSet);
+              const newKeys = new Set(selectedSetRef.current);
               newKeys.add(sRk);
               const finalKeys = Array.from(newKeys);
-              const finalRows = dataSource.filter((r) => newKeys.has(String(getRK(r))));
-              updateSelection(finalKeys as any, finalRows);
+              // Crear un Map para búsqueda eficiente de filas por key
+              const rowMap = new Map(dataSource.map((r) => [String(getRK(r)), r]));
+              const finalRows = finalKeys.map((k) => rowMap.get(String(k))).filter((r): r is T => r !== undefined);
+              updateSelection(finalKeys, finalRows);
             }
           } catch {
             // noop
@@ -184,10 +195,12 @@ function ProTableRowInner<T extends object>({
           e.preventDefault();
           if (draggedIndex !== null && hoveredIndex !== null && draggedIndex !== hoveredIndex) {
             const newData = [...dataSource];
-            const sourceRowKey = getRK(rows[draggedIndex].original);
-            const destRowKey = getRK(rows[hoveredIndex].original);
-            const fromIdx = dataSource.findIndex((r) => String(getRK(r)) === String(sourceRowKey));
-            const toIdx = dataSource.findIndex((r) => String(getRK(r)) === String(destRowKey));
+            const sourceOriginal = mapVirtualIndexToOriginal ? mapVirtualIndexToOriginal(draggedIndex) : rows[draggedIndex]?.original;
+            const destOriginal = mapVirtualIndexToOriginal ? mapVirtualIndexToOriginal(hoveredIndex) : rows[hoveredIndex]?.original;
+            const sourceRowKey = sourceOriginal ? getRK(sourceOriginal) : undefined;
+            const destRowKey = destOriginal ? getRK(destOriginal) : undefined;
+            const fromIdx = sourceRowKey !== undefined ? dataSource.findIndex((r) => String(getRK(r)) === String(sourceRowKey)) : -1;
+            const toIdx = destRowKey !== undefined ? dataSource.findIndex((r) => String(getRK(r)) === String(destRowKey)) : -1;
             if (fromIdx !== -1 && toIdx !== -1) {
               const [moved] = newData.splice(fromIdx, 1);
               newData.splice(toIdx, 0, moved);
@@ -360,7 +373,7 @@ export const ProTableRow = memo(ProTableRowInner, (prev: any, next: any) => {
   // quick checks for props that should trigger a re-render
   if (String(prev.rk) !== String(next.rk)) return false;
   if (prev.hl !== next.hl) return false;
-  if (prev.isPrevSelected !== next.isPrevSelected) return false;
+  if (prev.selectedSet !== next.selectedSet) return false;
   if (prev.isNextSelected !== next.isNextSelected) return false;
   if (prev.isDragHover !== next.isDragHover) return false;
   if (prev.dragDir !== next.dragDir) return false;

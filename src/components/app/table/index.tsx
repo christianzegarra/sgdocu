@@ -148,7 +148,7 @@ function ProTableBase<T extends object>({
   // groupRow desactiva la paginación de TanStack para que se muestren
   // todos los registros; el footer igual recibe el prop original `pagination`
   // para mostrar el mensaje informativo cuando corresponde.
-  const effectivePagination = (infiniteScroll || !!groupRow) ? false : pagination;
+  const effectivePagination = infiniteScroll || !!groupRow ? false : pagination;
 
   const [infinitePageIndex, setInfinitePageIndex] = useState(0);
   const infiniteLoadingRef = useRef(false);
@@ -360,8 +360,10 @@ function ProTableBase<T extends object>({
                     if (e.target.checked) newKeys.add(sRk);
                     else newKeys.delete(sRk);
                     const finalKeys = Array.from(newKeys);
-                    const finalRows = metaDataSource.filter((r) => newKeys.has(String(getRK(r))));
-                    metaUpdateSelection(finalKeys as any, finalRows);
+                    // Crear un Map para búsqueda eficiente de filas por key
+                    const rowMap = new Map(metaDataSource.map((r) => [String(getRK(r)), r]));
+                    const finalRows = finalKeys.map((k) => rowMap.get(String(k))).filter((r): r is T => r !== undefined);
+                    metaUpdateSelection(finalKeys, finalRows);
                   }}
                   onClick={(e) => e.stopPropagation()}
                 />
@@ -732,13 +734,20 @@ function ProTableBase<T extends object>({
         if (rowSelection.type === "single") {
           updateSelection([rk], [row]);
         } else if (rowSelection.type === "multiple") {
-          updateSelection([rk], [row]);
+          // En modo múltiple, agregar a las selecciones existentes
+          const newKeys = new Set(selectedSet);
+          newKeys.add(String(rk));
+          const finalKeys = Array.from(newKeys);
+          // Crear un Map para búsqueda eficiente
+          const rowMap = new Map(dataSource.map((r) => [String(getRK(r)), r]));
+          const finalRows = finalKeys.map((k) => rowMap.get(String(k))).filter((r): r is T => r !== undefined);
+          updateSelection(finalKeys, finalRows);
         }
       }
 
       rowSelection?.onRowContextMenu?.(rk, row);
     },
-    [selectedSet, rowSelection, updateSelection],
+    [selectedSet, rowSelection, updateSelection, dataSource, getRK],
   );
 
   const getHeaderVirtualSize = useCallback(
@@ -946,6 +955,11 @@ function ProTableBase<T extends object>({
                     setHoveredIndex={setHoveredIndex}
                     dataSource={dataSource}
                     rows={rows}
+                    mapVirtualIndexToOriginal={(i) => {
+                      const it = flatItems[i];
+                      if (!it) return undefined;
+                      return it.kind === "row" ? (it.tableRow.original as T) : undefined;
+                    }}
                     scrollRef={scrollRef}
                     handleCtx={handleCtx}
                     expandable={expandable}
@@ -1007,6 +1021,7 @@ function ProTableBase<T extends object>({
                   setHoveredIndex={setHoveredIndex}
                   dataSource={dataSource}
                   rows={rows}
+                  mapVirtualIndexToOriginal={(i) => rows[i]?.original}
                   scrollRef={scrollRef}
                   handleCtx={handleCtx}
                   expandable={expandable}
@@ -1045,14 +1060,7 @@ function ProTableBase<T extends object>({
         </div>
       </div>
 
-      <ProTableFooter
-        selectedSet={selectedSet}
-        dataSource={dataSource}
-        pagination={pagination}
-        table={table}
-        paginationConfig={paginationConfig}
-        groupRowEnabled={!!groupRow}
-      />
+      <ProTableFooter selectedSet={selectedSet} dataSource={dataSource} pagination={pagination} table={table} paginationConfig={paginationConfig} groupRowEnabled={!!groupRow} />
 
       <ProTableContextMenu
         ctx={ctx}
